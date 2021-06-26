@@ -1,20 +1,25 @@
 import Phaser from "phaser";
 import ScoreLabel from "../ui/ScoreLabel";
+import BombSpawner from "./BombSpawner";
+import RestartLabel from "../ui/RestartLabel";
 
 const GROUND_KEY = "ground";
 const DUDE_KEY = "dude";
 const STAR_KEY = "star";
+const BOMB_KEY = "bomb";
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
     super("game-scene");
+
+    this.gameOver = false;
   }
 
   preload() {
     this.load.image("sky", "assets/sky.png");
     this.load.image(GROUND_KEY, "assets/platform.png");
     this.load.image(STAR_KEY, "assets/star.png");
-    this.load.image("bomb", "assets/bomb.png");
+    this.load.image(BOMB_KEY, "assets/bomb.png");
 
     this.load.spritesheet(DUDE_KEY, "assets/dude.png", {
       frameWidth: 32,
@@ -28,22 +33,65 @@ export default class GameScene extends Phaser.Scene {
 
     const platforms = this.createPlatforms();
     this.player = this.createPlayer();
-    const stars = this.createStars();
+    this.stars = this.createStars();
 
     // Text for score
     this.scoreLabel = this.createScoreLabel(16, 16, 0);
 
+    // Restart text
+    this.restartText = new RestartLabel(this, 30, 30, {
+      fontSize: "32px",
+      fill: "#000",
+    });
+
+    this.add.text(16, 40, "Type space to restart.", {
+      fontSize: "24px",
+      color: "#000",
+    });
+
+    // bomb
+    this.bombspawner = new BombSpawner(this, BOMB_KEY);
+    const bombGroup = this.bombspawner.group;
+    this.bombTest = bombGroup;
+
+    // colliders between platforms and bombs
+    this.physics.add.collider(bombGroup, platforms);
+    this.physics.add.collider(
+      this.player,
+      bombGroup,
+      this.hitByBomb,
+      null,
+      this
+    );
+
     // colliders with platform/ground
     this.physics.add.collider(this.player, platforms);
-    this.physics.add.collider(stars, platforms);
+    this.physics.add.collider(this.stars, platforms);
 
     this.cursors = this.input.keyboard.createCursorKeys();
     // collecting stars - detect overlap between player and star
     // if that happens -> call collectStars
-    this.physics.add.overlap(this.player, stars, this.collectStars, null, this);
+    this.physics.add.overlap(
+      this.player,
+      this.stars,
+      this.collectStars,
+      null,
+      this
+    );
   }
 
   update() {
+    if (this.gameOver) {
+      // space to restart when dead
+      /*       this.add.text(16, 40, "Type space to restart.", {
+        fontSize: "32px",
+        color: "#000",
+      }); */
+      if (this.cursors.space.isDown) {
+        this.scene.restart();
+      }
+    }
+
     if (this.cursors.left.isDown) {
       this.player.setVelocityX(-160);
       this.player.anims.play("left", true);
@@ -120,6 +168,21 @@ export default class GameScene extends Phaser.Scene {
     star.disableBody(true, true);
 
     this.scoreLabel.add(10);
+
+    // check if all stars have been collected/no active stars
+    if (this.stars.countActive(true) === 0) {
+      this.stars.children.iterate((c) => {
+        const child = /** @type {Phaser.Physics.Arcade.Sprite} */ (c);
+        // Spawn the stars again
+        child.enableBody(true, child.x, 0, true, true);
+      });
+      // only spawn bomb if all stars are collected
+      // this.bombspawner.spawn(player.x);
+    }
+    // each time a star is collected, spawn a new bomb - but not more than number
+    if (this.bombTest.countActive(true) < 5) {
+      this.bombspawner.spawn(player.x);
+    }
   }
 
   createScoreLabel(x, y, score) {
@@ -129,5 +192,12 @@ export default class GameScene extends Phaser.Scene {
     this.add.existing(label);
 
     return label;
+  }
+
+  hitByBomb(player) {
+    this.physics.pause();
+    player.setTint(0xff0000);
+    player.anims.play("turn");
+    this.gameOver = true;
   }
 }
